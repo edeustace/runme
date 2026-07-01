@@ -40,6 +40,10 @@ func (b *configBuilder) Build() (*ProgramConfig, error) {
 		ProgramName: b.programPath(),
 		LanguageId:  b.block.Language(),
 		Directory:   b.dir(),
+		Env: []string{
+			"RUNME_CELL_NAME=" + b.block.Name(),
+			"RUNME_CELL_ID=" + b.block.ID(),
+		},
 	}
 
 	if b.useInteractiveLegacy {

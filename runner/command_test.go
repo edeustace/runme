@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/runmedev/runme/v3/command/testdata"
+	rcontext "github.com/runmedev/runme/v3/runner/context"
 )
 
 func init() {
@@ -623,6 +624,74 @@ func Test_command(t *testing.T) {
 		data, err := io.ReadAll(stdout)
 		assert.NoError(t, err)
 		assert.Equal(t, "200\r\n100\r\n", string(data))
+	})
+}
+
+func Test_command_ExecutionInfoEnv(t *testing.T) {
+	t.Parallel()
+
+	t.Run("WithExecutionInfo", func(t *testing.T) {
+		t.Parallel()
+
+		stdout := new(bytes.Buffer)
+
+		cmd, err := newCommand(
+			context.Background(),
+			&commandConfig{
+				ProgramName: "bash",
+				Stdout:      stdout,
+				Stderr:      io.Discard,
+				CommandMode: CommandModeInlineShell,
+				Script:      `echo -n "$RUNME_CELL_NAME/$RUNME_CELL_ID"`,
+				Logger:      testCreateLogger(t),
+			},
+		)
+		require.NoError(t, err)
+
+		ctx := rcontext.WithExecutionInfo(context.Background(), &rcontext.ExecutionInfo{
+			KnownName: "my-cell",
+			KnownID:   "cell-id-123",
+		})
+		require.NoError(t, cmd.Start(ctx))
+		require.NoError(t, cmd.Wait())
+
+		data, err := io.ReadAll(stdout)
+		assert.NoError(t, err)
+		assert.Equal(t, "my-cell/cell-id-123", string(data))
+	})
+
+	t.Run("WithoutExecutionInfo", func(t *testing.T) {
+		t.Parallel()
+
+		logger := testCreateLogger(t)
+
+		// A non-empty session prevents the command from inheriting
+		// the test process's environment, which may itself contain
+		// RUNME_CELL_* when tests are run via runme.
+		session, err := NewSession([]string{"TEST_GUARD=1"}, nil, logger)
+		require.NoError(t, err)
+
+		stdout := new(bytes.Buffer)
+
+		cmd, err := newCommand(
+			context.Background(),
+			&commandConfig{
+				ProgramName: "bash",
+				Session:     session,
+				Stdout:      stdout,
+				Stderr:      io.Discard,
+				CommandMode: CommandModeInlineShell,
+				Script:      `echo -n "${RUNME_CELL_NAME-unset}/${RUNME_CELL_ID-unset}"`,
+				Logger:      logger,
+			},
+		)
+		require.NoError(t, err)
+		require.NoError(t, cmd.Start(context.Background()))
+		require.NoError(t, cmd.Wait())
+
+		data, err := io.ReadAll(stdout)
+		assert.NoError(t, err)
+		assert.Equal(t, "unset/unset", string(data))
 	})
 }
 

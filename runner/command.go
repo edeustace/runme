@@ -21,6 +21,7 @@ import (
 
 	"github.com/runmedev/runme/v3/internal/system"
 	"github.com/runmedev/runme/v3/internal/ulid"
+	rcontext "github.com/runmedev/runme/v3/runner/context"
 )
 
 const (
@@ -49,6 +50,11 @@ type command struct {
 	tty *os.File
 
 	tmpEnvDir string
+
+	// sessionEnvs is the session environment the command started with,
+	// without per-execution variables like RUNME_CELL_NAME. It is the
+	// baseline for updating the session store after the command exits.
+	sessionEnvs []string
 
 	tempScriptFile string
 
@@ -340,7 +346,21 @@ func (c *command) StartWithOpts(ctx context.Context, opts *startOpts) error {
 	if err != nil {
 		return err
 	}
+	c.sessionEnvs = env
 	c.cmd.Env = append(c.cmd.Env, env...)
+
+	if execInfo, ok := rcontext.ExecutionInfoFromContext(ctx); ok {
+		// exec.Cmd inherits the parent environment only when Env is nil.
+		// Seed it explicitly so that appending the cell variables does not
+		// strip the inherited environment.
+		if c.cmd.Env == nil {
+			c.cmd.Env = os.Environ()
+		}
+		c.cmd.Env = append(c.cmd.Env,
+			"RUNME_CELL_NAME="+execInfo.KnownName,
+			"RUNME_CELL_ID="+execInfo.KnownID,
+		)
+	}
 
 	if c.tty != nil {
 		opts.TtyAssignment(c)
@@ -517,7 +537,7 @@ func (c *command) collectEnvs() {
 		newEnvStore(endEnvs...),
 	)
 
-	err = c.Session.UpdateStore(c.context, c.cmd.Env, newOrUpdated, deleted)
+	err = c.Session.UpdateStore(c.context, c.sessionEnvs, newOrUpdated, deleted)
 	c.seterr(err)
 }
 
@@ -598,6 +618,13 @@ func (c *command) setWinsize(winsize *pty.Winsize) {
 func getDumpCmd() string {
 	path, _ := os.Executable()
 	return strings.Join([]string{path, "env", "dump", "--insecure"}, " ")
+}
+
+// SetEnvDumpCommandForTesting overrides the default command that dumps the environment variables.
+// It is and should be used only for testing purposes. The default command re-executes the current
+// binary, which in a test context is the test binary itself and leads to recursive test execution.
+func SetEnvDumpCommandForTesting() {
+	dumpCmd = "env -0"
 }
 
 var fileExtensionByLanguageID = map[string]string{

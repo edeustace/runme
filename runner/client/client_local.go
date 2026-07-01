@@ -18,6 +18,7 @@ import (
 	"github.com/runmedev/runme/v3/notebook"
 	"github.com/runmedev/runme/v3/project"
 	"github.com/runmedev/runme/v3/runner"
+	rcontext "github.com/runmedev/runme/v3/runner/context"
 )
 
 type LocalRunner struct {
@@ -183,6 +184,11 @@ func (r *LocalRunner) ResolveProgram(ctx context.Context, mode runnerv1.ResolveP
 
 func (r *LocalRunner) RunTask(ctx context.Context, task project.Task) error {
 	block := task.CodeBlock
+
+	ctx = rcontext.WithExecutionInfo(ctx, &rcontext.ExecutionInfo{
+		KnownName: block.Name(),
+		KnownID:   block.ID(),
+	})
 
 	if r.shellID > 0 {
 		return r.runBlockInShell(ctx, block)
